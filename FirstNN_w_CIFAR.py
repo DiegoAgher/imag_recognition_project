@@ -5,7 +5,8 @@ import timeit
 
 import numpy
 
-from LogisticRegression import LogisticRegression, load_data
+#import matplotlib.pyplot as plt
+from LogisticRegression import LogisticRegression
 import theano
 import theano.tensor as T
 import theano.tensor.nnet as nnet
@@ -30,14 +31,16 @@ y_train = np.concatenate((data_batch_1["labels"],data_batch_2["labels"],data_bat
                           data_batch_5["labels"]))
 
 
+
 test_set = test["data"]
 Xte_rows = test_set.reshape(train_set_1.shape[0], 32 * 32 * 3)
 Yte = np.asarray(test["labels"])
 
-Xval_rows = X_train[:1000, :] # take first 1000 for validation
-Yval = y_train[:1000]
-Xtr_rows = X_train[1000:5000, :] # keep last 49,000 for train
-Ytr = y_train[1000:5000]
+
+Xval_rows = X_train[:7500, :] # take first 1000 for validation
+Yval = y_train[:7500]
+Xtr_rows = X_train[7500:50000, :] # keep last 49,000 for train
+Ytr = y_train[7500:50000]
 
 
 mean_train = Xtr_rows.mean(axis=0)
@@ -45,6 +48,10 @@ stdv_train = Xte_rows.std(axis=0)
 Xtr_rows = (Xtr_rows - mean_train) / stdv_train
 Xval_rows = (Xval_rows - mean_train) / stdv_train
 Xte_rows = (Xte_rows - mean_train) / stdv_train
+
+train_set = (Xtr_rows,Ytr)
+valid_set = (Xval_rows,Yval)
+test_set = (Xte_rows,Yte)
 
 
 x = T.dvector()
@@ -168,7 +175,7 @@ class MLP(object):
             input=input,
             n_in=n_in,
             n_out=n_hidden,
-            activation=T.tanh
+            activation=theano.tensor.tanh
         )
 
         # The logistic regression layer gets as input the hidden units
@@ -212,10 +219,7 @@ class MLP(object):
 
 
 # compute number of minibatches for training, validation and testing
-batch_size = 1000
-n_train_batches = Xtr_rows.shape[0] // batch_size
-n_valid_batches = Xval_rows.shape[0] // batch_size
-n_test_batches = Xte_rows.shape[0] // batch_size
+batch_size = 20
 
 index = T.lscalar()  # index to a [mini]batch
 x = T.matrix('x')  # the data is presented as rasterized images
@@ -229,7 +233,7 @@ classifier = MLP(
     rng=rng,
     input=x,
     n_in=Xtr_rows.shape[1],
-    n_hidden=8,
+    n_hidden=400,
     n_out=10
 )
 
@@ -237,8 +241,8 @@ classifier = MLP(
 # the cost we minimize during training is the negative log likelihood of
 # the model plus the regularization terms (L1 and L2); cost is expressed
 # here symbolically
-L1_reg = 0.0001
-L2_reg = 0.0001
+L1_reg = 0.000
+L2_reg = 0.005
 learning_rate = theano.shared(0.01)
 cost = (
     classifier.negative_log_likelihood(y)
@@ -249,41 +253,90 @@ cost = (
 
 # compiling a Theano function that computes the mistakes that are made
 # by the model on a minibatch
-Xte_shared = theano.shared(np.asarray(Xte_rows, dtype='float64'))
-Yte_shared = theano.shared(np.asarray(Yte, dtype='float64'))
 
-Xtr_shared = theano.shared(np.asarray(Xtr_rows, dtype='float64'))
-Ytr_shared = theano.shared(np.asarray(Ytr, dtype='float64'))
+def shared_dataset(data_xy, borrow=True):
+    """ Function that loads the dataset into shared variables
+
+    The reason we store our dataset in shared variables is to allow
+    Theano to copy it into the GPU memory (when code is run on GPU).
+    Since copying data into the GPU is slow, copying a minibatch everytime
+    is needed (the default behaviour if the data is not in a shared
+    variable) would lead to a large decrease in performance.
+    """
+    data_x, data_y = data_xy
+    shared_x = theano.shared(numpy.asarray(data_x,
+                                           dtype=theano.config.floatX),
+                             borrow=borrow)
+    shared_y = theano.shared(numpy.asarray(data_y,
+                                           dtype=theano.config.floatX),
+                             borrow=borrow)
+    # When storing data on the GPU it has to be stored as floats
+    # therefore we will store the labels as ``floatX`` as well
+    # (``shared_y`` does exactly that). But during our computations
+    # we need them as ints (we use labels as index, and if they are
+    # floats it doesn't make sense) therefore instead of returning
+    # ``shared_y`` we will have to cast it to int. This little hack
+    # lets ous get around this issue
+    return shared_x, T.cast(shared_y, 'int32')
+
+test_set_x, test_set_y = shared_dataset(test_set)
+valid_set_x, valid_set_y = shared_dataset(valid_set)
+train_set_x, train_set_y = shared_dataset(train_set)
+datasets = [(train_set_x, train_set_y), (valid_set_x, valid_set_y),
+            (test_set_x, test_set_y)]
+
+train_set_x, train_set_y = datasets[0]
+valid_set_x, valid_set_y = datasets[1]
+test_set_x, test_set_y = datasets[2]
+
+n_train_batches = train_set_x.get_value(borrow=True).shape[0] // batch_size
+n_valid_batches = valid_set_x.get_value(borrow=True).shape[0] // batch_size
+n_test_batches = test_set_x.get_value(borrow=True).shape[0] // batch_size
+
 
 test_model = theano.function(
-        inputs=[x, y],
+        inputs=[index],
         outputs=classifier.errors(y),
-        allow_input_downcast=True
+        givens={
+            x: test_set_x[index * batch_size: (index + 1) * batch_size],
+            y: test_set_y[index * batch_size: (index + 1) * batch_size]
+        }
     )
 
-X_val = theano.shared(Xval_rows)
-Yval = theano.shared(Yval)
+
 validate_model = theano.function(
-        inputs=[x,y],
+        inputs=[index],
         outputs=classifier.errors(y),
-        allow_input_downcast=True
+        givens={
+            x: valid_set_x[index * batch_size: (index + 1) * batch_size],
+            y: valid_set_y[index * batch_size: (index + 1) * batch_size]
+        }
     )
 
 gparams = [T.grad(cost, param) for param in classifier.params]
+
+
+# eval_grad = theano.function(
+#            inputs=[param for param in classifier.params],
+#            outputs=[gparams])
+
 updates = [
     (param, param - learning_rate * gparam)
     for param, gparam in zip(classifier.params, gparams)
 ]
 
 train_model = theano.function(
-        inputs=[x,y],
+        inputs=[index],
         outputs=cost,
         updates=updates,
-        allow_input_downcast=True
+        givens={
+            x: train_set_x[index * batch_size: (index + 1) * batch_size],
+            y: train_set_y[index * batch_size: (index + 1) * batch_size]
+        }
     )
 cost_aux = 4
 
-patience = 35000  # look as this many examples regardless
+patience = 3000  # look as this many examples regardless
 patience_increase = 2  # wait this much longer when a new best is
                        # found
 improvement_threshold = 0.995  # a relative improvement of this much is
@@ -307,96 +360,83 @@ prev_cost = 10
 print("before the while")
 e_e = 0
 f_f = 0
+epoch_loss_list = []
+epoch_val_list = []
+f_graph = np.zeros([1,2])
+s_graph = np.zeros([1,2])
+t_graph = np.zeros([1,2])
 while (epoch < n_epochs) and (not done_looping):
-    print("inside the while, epoch: ", epoch)
-    epoch = epoch + 1
+        epoch = epoch + 1
+        for minibatch_index in range(n_train_batches):
 
-    for minibatch_index in range(n_train_batches):
+            minibatch_avg_cost = train_model(minibatch_index)
+            # iteration number
+
+            ite = (epoch - 1) * n_train_batches + minibatch_index
+            epoch_loss_entry = [ite,epoch,float(minibatch_avg_cost)]
+            epoch_loss_list.append(epoch_loss_entry)
 
 
-        batch_xtr = Xtr_shared.get_value()[minibatch_index * batch_size: (minibatch_index + 1) * batch_size]
-        batch_ytr = Ytr_shared.get_value()[minibatch_index * batch_size: (minibatch_index + 1) * batch_size]
 
-        batch_xte =Xte_shared.get_value()[minibatch_index * batch_size: (minibatch_index + 1) * batch_size]
-        batch_yte =Yte_shared.get_value()[minibatch_index * batch_size: (minibatch_index + 1) * batch_size]
+            if (ite + 1) % validation_frequency == 0:
+                # compute zero-one loss on validation set
+                validation_losses = [validate_model(i) for i
+                                     in range(n_valid_batches)]
+                this_validation_loss = numpy.mean(validation_losses)
 
-        minibatch_avg_cost = train_model(batch_xtr,batch_ytr)
-
-        if prev_cost > minibatch_avg_cost:
-            e_e +=1
-        else:
-            e_e = 0
-
-        if prev_cost < minibatch_avg_cost:
-            f_f +=1
-        else:
-            f_f = 0
-        if e_e == 10:
-            print("DECREASE learnr")
-            learning_rate.set_value(learning_rate.get_value()*0.9)
-        if f_f == 10:
-            print("INCREASE learnr")
-            learning_rate.set_value(learning_rate.get_value()*1.05)
-
-        prev_cost = minibatch_avg_cost
-
-        # iteration number
-        iter = (epoch - 1) * n_train_batches + minibatch_index
-
-        if (iter + 1) % 6 ==0:
-            print("cost is :"+str(minibatch_avg_cost))
-
-        if (iter + 1) % validation_frequency == 0:
-            # compute zero-one loss on validation set
-            validation_losses = [validate_model(X_val.get_value()[i * batch_size: (i + 1) * batch_size], Yval.get_value()[i * batch_size: (i + 1) * batch_size]) for i
-                                 in range(n_valid_batches)]
-            this_validation_loss = numpy.mean(validation_losses)
-            print(
-                'epoch %i, minibatch %i/%i, validation error %f %%' %
-                (
-                    epoch,
-                    minibatch_index + 1,
-                    n_train_batches,
-                    this_validation_loss * 100.
+                epoch_val_entry = [ite,epoch,this_validation_loss]
+                epoch_val_list.append(epoch_val_entry)
+                print(
+                    'epoch %i, minibatch %i/%i, validation error %f %%' %
+                    (
+                        epoch,
+                        minibatch_index + 1,
+                        n_train_batches,
+                        this_validation_loss * 100.
+                    )
                 )
-            )
 
-            # if we got the best validation score until now
-            if this_validation_loss < best_validation_loss:
-                #improve patience if loss improvement is good enough
-                if (
-                    this_validation_loss < best_validation_loss *
-                    improvement_threshold
-                ):
-                    patience = max(patience, iter * patience_increase)
+                # if we got the best validation score until now
+                if this_validation_loss < best_validation_loss:
+                    #improve patience if loss improvement is good enough
+                    if (
+                        this_validation_loss < best_validation_loss *
+                        improvement_threshold
+                    ):
+                        patience = max(patience, ite * patience_increase)
 
-                best_validation_loss = this_validation_loss
-                best_iter = iter
+                    best_validation_loss = this_validation_loss
+                    best_iter = ite
 
-                # test it on the test set
-                test_losses = [test_model(Xte_shared.get_value()[i * batch_size: (i + 1) * batch_size],
-                                          Yte_shared.get_value()[i * batch_size: (i + 1) * batch_size]) for i
-                                 in range(n_test_batches)]
-                test_score = numpy.mean(test_losses)
+                    # test it on the test set
+                    test_losses = [test_model(i) for i
+                                   in range(n_test_batches)]
+                    test_score = numpy.mean(test_losses)
 
-                print(('     epoch %i, minibatch %i/%i, test error of '
-                       'best model %f %%') %
-                      (epoch, minibatch_index + 1, n_train_batches,
-                       test_score * 100.))
+                    print(('     epoch %i, minibatch %i/%i, test error of '
+                           'best model %f %%') %
+                          (epoch, minibatch_index + 1, n_train_batches,
+                           test_score * 100.))
 
-        if patience <= iter:
-            print("patience <= iter")
-            done_looping = True
-            break
+            if patience <= ite:
+                done_looping = True
+                break
 
 
 end_time = timeit.default_timer()
 print(('Optimization complete. Best validation score of %f %% '
-       'obtained at iteration %i, with test performance %f %%') %
-      (best_validation_loss * 100., best_iter + 1, test_score * 100.))
+           'obtained at iteration %i, with test performance %f %%') %
+          (best_validation_loss * 100., best_iter + 1, test_score * 100.))
 print(('The code for file ' +
        os.path.split(__file__)[1] +
        ' ran for %.2fm' % ((end_time - start_time) / 60.)), file=sys.stderr)
+
+epoch_loss_np = np.reshape(epoch_loss_list,newshape=(len(epoch_loss_list),3))
+
+plt(epoch_loss_np)
+epoch_val_np = np.reshape(epoch_loss_list,newshape=(len(epoch_val_list),3))
+
+#trying to plot this this
 
 
 
