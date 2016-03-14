@@ -29,9 +29,9 @@ import sys
 import timeit
 
 import numpy
+
 import theano
 import theano.tensor as T
-from unpickle import unpickle
 
 
 from LogisticRegression import LogisticRegression
@@ -123,7 +123,7 @@ class MLP(object):
     class).
     """
 
-    def __init__(self, rng, input, n_in, n_hidden1, n_hidden2, n_out):
+    def __init__(self, rng, input, n_in, n_hidden, n_out):
         """Initialize the parameters for the multilayer perceptron
 
         :type rng: numpy.random.RandomState
@@ -137,11 +137,8 @@ class MLP(object):
         :param n_in: number of input units, the dimension of the space in
         which the datapoints lie
 
-        :type n_hidden1: int
-        :param n_hidden1: number of hidden units for first layer
-
-        :type n_hidden2: int
-        :param n_hidden2: number of hidden units for second layer
+        :type n_hidden: int
+        :param n_hidden: number of hidden units
 
         :type n_out: int
         :param n_out: number of output units, the dimension of the space in
@@ -153,43 +150,33 @@ class MLP(object):
         # into a HiddenLayer with a tanh activation function connected to the
         # LogisticRegression layer; the activation function can be replaced by
         # sigmoid or any other nonlinear function
-        self.First_hiddenLayer = HiddenLayer(
+        self.hiddenLayer = HiddenLayer(
             rng=rng,
             input=input,
             n_in=n_in,
-            n_out=n_hidden1,
-            activation=T.tanh
-        )
-
-        self.Second_hiddenLayer = HiddenLayer(
-            rng=rng,
-            input=self.First_hiddenLayer.output,
-            n_in=n_hidden1,
-            n_out=n_hidden2,
+            n_out=n_hidden,
             activation=T.tanh
         )
 
         # The logistic regression layer gets as input the hidden units
-        # of the last hidden layer
+        # of the hidden layer
         self.logRegressionLayer = LogisticRegression(
-            input=self.Second_hiddenLayer.output,
-            n_in=n_hidden2,
+            input=self.hiddenLayer.output,
+            n_in=n_hidden,
             n_out=n_out
         )
         # end-snippet-2 start-snippet-3
         # L1 norm ; one regularization option is to enforce L1 norm to
         # be small
         self.L1 = (
-            abs(self.First_hiddenLayer.W).sum()
-            + abs(self.Second_hiddenLayer.W).sum()
+            abs(self.hiddenLayer.W).sum()
             + abs(self.logRegressionLayer.W).sum()
         )
 
         # square of L2 norm ; one regularization option is to enforce
         # square of L2 norm to be small
         self.L2_sqr = (
-            (self.First_hiddenLayer.W ** 2).sum()
-            + (self.Second_hiddenLayer.W ** 2).sum()
+            (self.hiddenLayer.W ** 2).sum()
             + (self.logRegressionLayer.W ** 2).sum()
         )
 
@@ -204,15 +191,15 @@ class MLP(object):
 
         # the parameters of the model are the parameters of the two layer it is
         # made out of
-        self.params = self.First_hiddenLayer.params + self.Second_hiddenLayer.params + self.logRegressionLayer.params
+        self.params = self.hiddenLayer.params + self.logRegressionLayer.params
         # end-snippet-3
 
         # keep track of model input
         self.input = input
 
 
-def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.008, n_epochs=1000,
-             dataset='mnist.pkl.gz', batch_size=20, n_hidden1=500,n_hidden2=50):
+def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.0001, n_epochs=1000,
+             dataset='mnist.pkl.gz', batch_size=20, n_hidden=500):
     """
     Demonstrate stochastic gradient descent optimization for a multilayer
     perceptron
@@ -240,76 +227,7 @@ def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.008, n_epochs=1000,
 
 
    """
-
-    def shared_dataset(data_xy, borrow=True):
-        """ Function that loads the dataset into shared variables
-
-        The reason we store our dataset in shared variables is to allow
-        Theano to copy it into the GPU memory (when code is run on GPU).
-        Since copying data into the GPU is slow, copying a minibatch everytime
-        is needed (the default behaviour if the data is not in a shared
-        variable) would lead to a large decrease in performance.
-        """
-        data_x, data_y = data_xy
-        shared_x = theano.shared(numpy.asarray(data_x,
-                                               dtype=theano.config.floatX),
-                                 borrow=borrow)
-        shared_y = theano.shared(numpy.asarray(data_y,
-                                               dtype=theano.config.floatX),
-                                 borrow=borrow)
-        # When storing data on the GPU it has to be stored as floats
-        # therefore we will store the labels as ``floatX`` as well
-        # (``shared_y`` does exactly that). But during our computations
-        # we need them as ints (we use labels as index, and if they are
-        # floats it doesn't make sense) therefore instead of returning
-        # ``shared_y`` we will have to cast it to int. This little hack
-        # lets ous get around this issue
-        return shared_x, T.cast(shared_y, 'int32')
-
-    data_batch_1 = unpickle('cifar-10-batches-py/data_batch_1')
-    data_batch_2 = unpickle('cifar-10-batches-py/data_batch_2')
-    data_batch_3 = unpickle('cifar-10-batches-py/data_batch_3')
-    data_batch_4 = unpickle('cifar-10-batches-py/data_batch_4')
-    data_batch_5 = unpickle('cifar-10-batches-py/data_batch_5')
-    test = unpickle('cifar-10-batches-py/test_batch')
-
-    train_set_1 = data_batch_1["data"]
-    train_set_2 = data_batch_2["data"]
-    train_set_3 = data_batch_3["data"]
-    train_set_4 = data_batch_4["data"]
-    train_set_5 = data_batch_5["data"]
-    X_train = numpy.concatenate((train_set_1, train_set_2, train_set_3, train_set_4, train_set_5), axis=0)
-
-    y_train = numpy.concatenate((data_batch_1["labels"],data_batch_2["labels"],data_batch_3["labels"],data_batch_4["labels"],
-                              data_batch_5["labels"]))
-
-
-
-    test_set = test["data"]
-    Xte_rows = test_set.reshape(train_set_1.shape[0], 32 * 32 * 3)
-    Yte = numpy.asarray(test["labels"])
-
-    Xval_rows = X_train[:7500, :]
-    Yval = y_train[:7500]
-    Xtr_rows = X_train[7500:50000, :]
-    Ytr = y_train[7500:50000]
-
-
-    mean_train = Xtr_rows.mean(axis=0)
-    stdv_train = Xte_rows.std(axis=0)
-    Xtr_rows = (Xtr_rows - mean_train) / stdv_train
-    Xval_rows = (Xval_rows - mean_train) / stdv_train
-    Xte_rows = (Xte_rows - mean_train) / stdv_train
-
-    train_set = (Xtr_rows,Ytr)
-    valid_set = (Xval_rows,Yval)
-    test_set = (Xte_rows,Yte)
-
-    test_set_x, test_set_y = shared_dataset(test_set)
-    valid_set_x, valid_set_y = shared_dataset(valid_set)
-    train_set_x, train_set_y = shared_dataset(train_set)
-    datasets = [(train_set_x, train_set_y), (valid_set_x, valid_set_y),
-                (test_set_x, test_set_y)]
+    datasets = load_data(dataset)
 
     train_set_x, train_set_y = datasets[0]
     valid_set_x, valid_set_y = datasets[1]
@@ -337,9 +255,8 @@ def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.008, n_epochs=1000,
     classifier = MLP(
         rng=rng,
         input=x,
-        n_in=3072,
-        n_hidden1=500,
-        n_hidden2=500,
+        n_in=28 * 28,
+        n_hidden=n_hidden,
         n_out=10
     )
 
@@ -411,7 +328,7 @@ def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.008, n_epochs=1000,
     print('... training')
 
     # early-stopping parameters
-    patience = 1000000  # look as this many examples regardless
+    patience = 10000  # look as this many examples regardless
     patience_increase = 2  # wait this much longer when a new best is
                            # found
     improvement_threshold = 0.995  # a relative improvement of this much is
@@ -421,7 +338,6 @@ def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.008, n_epochs=1000,
                                   # minibatche before checking the network
                                   # on the validation set; in this case we
                                   # check every epoch
-    validation_frequency = n_train_batches
 
     best_validation_loss = numpy.inf
     best_iter = 0
@@ -433,8 +349,6 @@ def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.008, n_epochs=1000,
 
     while (epoch < n_epochs) and (not done_looping):
         epoch = epoch + 1
-        if epoch <=3:
-            learning_rate.set_value()
         for minibatch_index in range(n_train_batches):
 
             minibatch_avg_cost = train_model(minibatch_index)
@@ -490,7 +404,6 @@ def test_mlp(learning_rate=0.01, L1_reg=0.00, L2_reg=0.008, n_epochs=1000,
     print(('The code for file ' +
            os.path.split(__file__)[1] +
            ' ran for %.2fm' % ((end_time - start_time) / 60.)), file=sys.stderr)
-
 
 
 if __name__ == '__main__':

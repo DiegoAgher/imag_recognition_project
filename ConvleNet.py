@@ -27,8 +27,12 @@ from __future__ import print_function
 import os
 import sys
 import timeit
+import pandas
+import matplotlib.pyplot as plt
+import numpy
 
-import numpy as np
+from scipy.cluster.vq import whiten
+from theano.tensor.nnet import relu
 
 import theano
 import theano.tensor as T
@@ -36,7 +40,8 @@ from theano.tensor.signal import downsample
 from theano.tensor.nnet import conv2d
 
 from LogisticRegression import LogisticRegression
-from FirstNN_w_CIFAR import HiddenLayer
+from MLP import HiddenLayer
+from unpickle import  unpickle
 
 
 class LeNetConvPoolLayer(object):
@@ -69,16 +74,16 @@ class LeNetConvPoolLayer(object):
 
         # there are "num input feature maps * filter height * filter width"
         # inputs to each hidden unit
-        fan_in = np.prod(filter_shape[1:])
+        fan_in = numpy.prod(filter_shape[1:])
         # each unit in the lower layer receives a gradient from:
         # "num output feature maps * filter height * filter width" /
         #   pooling size
-        fan_out = (filter_shape[0] * np.prod(filter_shape[2:]) //
-                   np.prod(poolsize))
+        fan_out = (filter_shape[0] * numpy.prod(filter_shape[2:]) //
+                   numpy.prod(poolsize))
         # initialize weights with random weights
-        W_bound = np.sqrt(6. / (fan_in + fan_out))
+        W_bound = numpy.sqrt(6. / (fan_in + fan_out))
         self.W = theano.shared(
-            np.asarray(
+            numpy.asarray(
                 rng.uniform(low=-W_bound, high=W_bound, size=filter_shape),
                 dtype=theano.config.floatX
             ),
@@ -86,7 +91,7 @@ class LeNetConvPoolLayer(object):
         )
 
         # the bias is a 1D tensor -- one bias per output feature map
-        b_values = np.zeros((filter_shape[0],), dtype=theano.config.floatX)
+        b_values = numpy.zeros((filter_shape[0],), dtype=theano.config.floatX)
         self.b = theano.shared(value=b_values, borrow=True)
 
         # convolve input feature maps with filters
@@ -117,7 +122,7 @@ class LeNetConvPoolLayer(object):
         self.input = input
 
 
-def evaluate_lenet5(learning_rate=0.1, n_epochs=200,
+def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
                     dataset='mnist.pkl.gz',
                     nkerns=[20, 50], batch_size=500):
     """ Demonstrates lenet on MNIST dataset
@@ -136,6 +141,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=200,
     :param nkerns: number of kernels on each layer
     """
 
+    rng = numpy.random.RandomState(23455)
     def shared_dataset(data_xy, borrow=True):
         """ Function that loads the dataset into shared variables
 
@@ -146,10 +152,10 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=200,
         variable) would lead to a large decrease in performance.
         """
         data_x, data_y = data_xy
-        shared_x = theano.shared(np.asarray(data_x,
+        shared_x = theano.shared(numpy.asarray(data_x,
                                                dtype=theano.config.floatX),
                                  borrow=borrow)
-        shared_y = theano.shared(np.asarray(data_y,
+        shared_y = theano.shared(numpy.asarray(data_y,
                                                dtype=theano.config.floatX),
                                  borrow=borrow)
         # When storing data on the GPU it has to be stored as floats
@@ -160,9 +166,6 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=200,
         # ``shared_y`` we will have to cast it to int. This little hack
         # lets ous get around this issue
         return shared_x, T.cast(shared_y, 'int32')
-
-    rng = np.random.RandomState(23455)
-    from unpickle import unpickle
 
     data_batch_1 = unpickle('cifar-10-batches-py/data_batch_1')
     data_batch_2 = unpickle('cifar-10-batches-py/data_batch_2')
@@ -176,16 +179,16 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=200,
     train_set_3 = data_batch_3["data"]
     train_set_4 = data_batch_4["data"]
     train_set_5 = data_batch_5["data"]
-    X_train = np.concatenate((train_set_1, train_set_2, train_set_3, train_set_4, train_set_5), axis=0)
+    X_train = numpy.concatenate((train_set_1, train_set_2, train_set_3, train_set_4, train_set_5), axis=0)
 
-    y_train = np.concatenate((data_batch_1["labels"],data_batch_2["labels"],data_batch_3["labels"],data_batch_4["labels"],
+    y_train = numpy.concatenate((data_batch_1["labels"],data_batch_2["labels"],data_batch_3["labels"],data_batch_4["labels"],
                               data_batch_5["labels"]))
 
 
 
     test_set = test["data"]
     Xte_rows = test_set.reshape(train_set_1.shape[0], 32 * 32 * 3)
-    Yte = np.asarray(test["labels"])
+    Yte = numpy.asarray(test["labels"])
 
 
     Xval_rows = X_train[:7500, :] # take first 1000 for validation
@@ -196,13 +199,47 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=200,
 
     mean_train = Xtr_rows.mean(axis=0)
     stdv_train = Xte_rows.std(axis=0)
-    Xtr_rows = (Xtr_rows - mean_train) / stdv_train
-    Xval_rows = (Xval_rows - mean_train) / stdv_train
-    Xte_rows = (Xte_rows - mean_train) / stdv_train
+    Xtr_rows = (Xtr_rows - mean_train)
+    Xval_rows = (Xval_rows - mean_train)
+    Xte_rows = (Xte_rows - mean_train)
+    learning_rate = theano.shared(learning_rate)
+
+    """whitening"""
+
+    """
+    Xtr_rows -= numpy.mean(Xtr_rows, axis=0) # zero-center the data (important)
+    cov = numpy.dot(Xtr_rows.T, Xtr_rows) / Xtr_rows.shape[0]
+    U,S,V = numpy.linalg.svd(cov)
+
+    Xrot = numpy.dot(Xtr_rows, U)# decorrelate the data
+    Xrot_reduced = numpy.dot(Xtr_rows, U[:,:100])
+
+    # whiten the data:
+    # divide by the eigenvalues (which are square roots of the singular values)
+    Xwhite = Xrot / numpy.sqrt(S + 1e-5)"""
+
+    """whitening"""
+
+    #Xtr_rows = whiten(Xtr_rows)
+    # zero-center the data (important)
+    """cov = numpy.dot(Xtr_rows.T, Xtr_rows) / Xtr_rows.shape[0]
+    U,S,V = numpy.linalg.svd(cov)
+
+    Xrot = numpy.dot(Xtr_rows, U)
+
+    Xtr_rows = Xrot / numpy.sqrt(S + 1e-5)
+
+    Xval_rot = numpy.dot(Xval_rows,U)
+    Xval_rows = Xval_rot / numpy.sqrt(S + 1e-5)
+
+    Xte_rot = numpy.dot(Xte_rows,U)
+    Xte_rows = Xte_rot / numpy.sqrt(S + 1e-5)
+    """
 
     train_set = (Xtr_rows,Ytr)
     valid_set = (Xval_rows,Yval)
     test_set = (Xte_rows,Yte)
+
 
     test_set_x, test_set_y = shared_dataset(test_set)
     valid_set_x, valid_set_y = shared_dataset(valid_set)
@@ -213,6 +250,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=200,
     train_set_x, train_set_y = datasets[0]
     valid_set_x, valid_set_y = datasets[1]
     test_set_x, test_set_y = datasets[2]
+
 
     # compute number of minibatches for training, validation and testing
     n_train_batches = train_set_x.get_value(borrow=True).shape[0]
@@ -238,7 +276,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=200,
     # Reshape matrix of rasterized images of shape (batch_size, 28 * 28)
     # to a 4D tensor, compatible with our LeNetConvPoolLayer
     # (28, 28) is the size of MNIST images.
-    layer0_input = x.reshape((batch_size, 1, 28, 28))
+    layer0_input = x.reshape((batch_size, 3, 32, 32))
 
     # Construct the first convolutional pooling layer:
     # filtering reduces the image size to (28-5+1 , 28-5+1) = (24, 24)
@@ -247,8 +285,8 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=200,
     layer0 = LeNetConvPoolLayer(
         rng,
         input=layer0_input,
-        image_shape=(batch_size, 1, 28, 28),
-        filter_shape=(nkerns[0], 1, 5, 5),
+        image_shape=(batch_size, 3, 32, 32),
+        filter_shape=(nkerns[0], 3, 5, 5),
         poolsize=(2, 2)
     )
 
@@ -259,7 +297,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=200,
     layer1 = LeNetConvPoolLayer(
         rng,
         input=layer0.output,
-        image_shape=(batch_size, nkerns[0], 12, 12),
+        image_shape=(batch_size, nkerns[0], 14, 14),
         filter_shape=(nkerns[1], nkerns[0], 5, 5),
         poolsize=(2, 2)
     )
@@ -274,16 +312,22 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=200,
     layer2 = HiddenLayer(
         rng,
         input=layer2_input,
-        n_in=nkerns[1] * 4 * 4,
+        n_in=nkerns[1] * 5 * 5,
         n_out=500,
-        activation=T.tanh
+        activation=relu
     )
 
     # classify the values of the fully-connected sigmoidal layer
     layer3 = LogisticRegression(input=layer2.output, n_in=500, n_out=10)
 
     # the cost we minimize during training is the NLL of the model
-    cost = layer3.negative_log_likelihood(y)
+    L2_reg = 0.007
+    L2_sqr = (
+            (layer2.W ** 2).sum()
+            + (layer3.W ** 2).sum()
+        )
+
+    cost = layer3.negative_log_likelihood(y) + L2_reg * L2_sqr
 
     # create a function to compute the mistakes that are made by the model
     test_model = theano.function(
@@ -347,7 +391,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=200,
                                   # on the validation set; in this case we
                                   # check every epoch
 
-    best_validation_loss = np.inf
+    best_validation_loss = numpy.inf
     best_iter = 0
     test_score = 0.
     start_time = timeit.default_timer()
@@ -355,25 +399,46 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=200,
     epoch = 0
     done_looping = False
 
+    epoch_loss_list = []
+    epoch_val_list = []
+
     while (epoch < n_epochs) and (not done_looping):
         epoch = epoch + 1
+        if epoch ==10 :
+            learning_rate.set_value(0.1)
+        if epoch>10:
+            learning_rate.set_value(learning_rate.get_value()*0.985)
+        if epoch > 3:
+            epoch_loss_np = numpy.reshape(epoch_loss_list,newshape=(len(epoch_loss_list),3))
+            epoch_val_np = numpy.reshape(epoch_val_list,newshape=(len(epoch_val_list),3))
+            numpy.savetxt(fname='epoc_cost.csv', X=epoch_loss_np,
+                       fmt='%.i')
+            numpy.savetxt(fname='epoc_val_error.csv', X=epoch_val_np,
+                       fmt='%.i')
+
         for minibatch_index in range(n_train_batches):
 
             iter = (epoch - 1) * n_train_batches + minibatch_index
 
+
             if iter % 100 == 0:
                 print('training @ iter = ', iter)
             cost_ij = train_model(minibatch_index)
+
+            epoch_loss_entry = [iter,epoch,float(cost_ij)]
+            epoch_loss_list.append(epoch_loss_entry)
 
             if (iter + 1) % validation_frequency == 0:
 
                 # compute zero-one loss on validation set
                 validation_losses = [validate_model(i) for i
                                      in range(n_valid_batches)]
-                this_validation_loss = np.mean(validation_losses)
+                this_validation_loss = numpy.mean(validation_losses)
                 print('epoch %i, minibatch %i/%i, validation error %f %%' %
                       (epoch, minibatch_index + 1, n_train_batches,
                        this_validation_loss * 100.))
+                epoch_val_entry = [iter,epoch,this_validation_loss]
+                epoch_val_list.append(epoch_val_entry)
 
                 # if we got the best validation score until now
                 if this_validation_loss < best_validation_loss:
@@ -392,7 +457,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=200,
                         test_model(i)
                         for i in range(n_test_batches)
                     ]
-                    test_score = np.mean(test_losses)
+                    test_score = numpy.mean(test_losses)
                     print(('     epoch %i, minibatch %i/%i, test error of '
                            'best model %f %%') %
                           (epoch, minibatch_index + 1, n_train_batches,
@@ -410,6 +475,20 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=200,
     print(('The code for file ' +
            os.path.split(__file__)[1] +
            ' ran for %.2fm' % ((end_time - start_time) / 60.)), file=sys.stderr)
+
+    epoch_loss_np = numpy.reshape(epoch_loss_list,newshape=(len(epoch_loss_list), 3))
+    epoch_val_np = numpy.reshape(epoch_val_list,newshape=(len(epoch_val_list), 3))
+
+    epoch_loss = pandas.DataFrame({"iter":epoch_loss_np[:,0],"epoch":epoch_loss_np[:,1],"cost":epoch_loss_np[:,2]})
+    epoch_vall = pandas.DataFrame({"iter":epoch_val_np[:,0],"epoch":epoch_val_np[:,1],"val_error":epoch_val_np[:,2]})
+    epoc_avg_loss = pandas.DataFrame(epoch_loss.groupby(['epoch']).mean()["cost"])
+    epoc_avg_val = pandas.DataFrame(epoch_vall.groupby(['epoch']).mean()["val_error"])
+    epoc_avg_loss = pandas.DataFrame({"epoch":epoc_avg_loss.index.values,"cost":epoc_avg_loss["cost"]})
+    epoc_avg_loss_val = pandas.DataFrame({"epoch":epoc_avg_val.index.values,"val_error":epoc_avg_val["val_error"]})
+    epoc_avg_loss.plot(kind="line",x="epoch",y="cost")
+    plt.show()
+    epoc_avg_loss_val.plot(kind='line',x="epoch",y="val_error")
+    plt.show()
 
 if __name__ == '__main__':
     evaluate_lenet5()

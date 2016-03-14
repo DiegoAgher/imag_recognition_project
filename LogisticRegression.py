@@ -135,7 +135,7 @@ class LogisticRegression(object):
         else:
             raise NotImplementedError()
 
-
+"""
 def load_data(dataset):
     ''' Loads the dataset
 
@@ -182,6 +182,7 @@ def load_data(dataset):
     # numpy.ndarray of 1 dimension (vector) that has the same length as
     # the number of rows in the input. It should give the target
     # to the example with the same index in the input.
+"""
 
 def shared_dataset(data_xy, borrow=True):
     """ Function that loads the dataset into shared variables
