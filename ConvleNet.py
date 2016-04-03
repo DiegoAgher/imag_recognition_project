@@ -193,15 +193,15 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
 
     Xval_rows = X_train[:7500, :] # take first 1000 for validation
     Yval = y_train[:7500]
-    Xtr_rows = X_train[7500:50000, :] # keep last 49,000 for train
+    Xtr_rows = X_train[7500:50000, :]# keep last 49,000 for train
     Ytr = y_train[7500:50000]
 
 
     mean_train = Xtr_rows.mean(axis=0)
     stdv_train = Xte_rows.std(axis=0)
-    Xtr_rows = (Xtr_rows - mean_train)
-    Xval_rows = (Xval_rows - mean_train)
-    Xte_rows = (Xte_rows - mean_train)
+    Xtr_rows = (Xtr_rows - mean_train) / stdv_train
+    Xval_rows = (Xval_rows - mean_train) / stdv_train
+    Xte_rows = (Xte_rows - mean_train) / stdv_train
     learning_rate = theano.shared(learning_rate)
 
     """whitening"""
@@ -321,13 +321,13 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
     layer3 = LogisticRegression(input=layer2.output, n_in=500, n_out=10)
 
     # the cost we minimize during training is the NLL of the model
-    L2_reg = 0.007
+    L2_reg = 0.00
     L2_sqr = (
             (layer2.W ** 2).sum()
             + (layer3.W ** 2).sum()
         )
 
-    cost = layer3.negative_log_likelihood(y) + L2_reg * L2_sqr
+    cost = layer3.negative_log_likelihood(y)  # + L2_reg * L2_sqr
 
     # create a function to compute the mistakes that are made by the model
     test_model = theano.function(
@@ -406,15 +406,15 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
         epoch = epoch + 1
         if epoch ==10 :
             learning_rate.set_value(0.1)
-        if epoch>10:
-            learning_rate.set_value(learning_rate.get_value()*0.985)
+        #if epoch > 30:
+        #    learning_rate.set_value(learning_rate.get_value()*0.9995)
         if epoch > 3:
             epoch_loss_np = numpy.reshape(epoch_loss_list,newshape=(len(epoch_loss_list),3))
             epoch_val_np = numpy.reshape(epoch_val_list,newshape=(len(epoch_val_list),3))
             numpy.savetxt(fname='epoc_cost.csv', X=epoch_loss_np,
-                       fmt='%.i')
+                        fmt='%1.3f')
             numpy.savetxt(fname='epoc_val_error.csv', X=epoch_val_np,
-                       fmt='%.i')
+                        fmt='%1.3f')
 
         for minibatch_index in range(n_train_batches):
 
