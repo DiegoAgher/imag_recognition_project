@@ -41,7 +41,7 @@ from theano.tensor.nnet import conv2d
 
 from LogisticRegression import LogisticRegression
 from MLP import HiddenLayer
-from unpickle import  unpickle
+from unpickle import unpickle
 
 
 class LeNetConvPoolLayer(object):
@@ -124,8 +124,8 @@ class LeNetConvPoolLayer(object):
 
 def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
                     dataset='mnist.pkl.gz',
-                    nkerns=[20, 50], batch_size=500):
-    """ Demonstrates lenet on MNIST dataset
+                    nkerns=[20, 20], batch_size=500):
+    """ Demonstrates lenet on CIFAR-10 dataset
 
     :type learning_rate: float
     :param learning_rate: learning rate used (factor for the stochastic
@@ -134,15 +134,14 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
     :type n_epochs: int
     :param n_epochs: maximal number of epochs to run the optimizer
 
-    :type dataset: string
-    :param dataset: path to the dataset used for training /testing (MNIST here)
-
     :type nkerns: list of ints
     :param nkerns: number of kernels on each layer
     """
 
     rng = numpy.random.RandomState(23455)
+
     def shared_dataset(data_xy, borrow=True):
+
         """ Function that loads the dataset into shared variables
 
         The reason we store our dataset in shared variables is to allow
@@ -181,21 +180,17 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
     train_set_5 = data_batch_5["data"]
     X_train = numpy.concatenate((train_set_1, train_set_2, train_set_3, train_set_4, train_set_5), axis=0)
 
-    y_train = numpy.concatenate((data_batch_1["labels"],data_batch_2["labels"],data_batch_3["labels"],data_batch_4["labels"],
-                              data_batch_5["labels"]))
-
-
+    y_train = numpy.concatenate((data_batch_1["labels"], data_batch_2["labels"], data_batch_3["labels"],
+                                 data_batch_4["labels"], data_batch_5["labels"]))
 
     test_set = test["data"]
     Xte_rows = test_set.reshape(train_set_1.shape[0], 32 * 32 * 3)
     Yte = numpy.asarray(test["labels"])
 
-
-    Xval_rows = X_train[:7500, :] # take first 1000 for validation
+    Xval_rows = X_train[:7500, :]  # take first 1000 for validation
     Yval = y_train[:7500]
-    Xtr_rows = X_train[7500:50000, :]# keep last 49,000 for train
+    Xtr_rows = X_train[7500:50000, :]  # keep last 49,000 for train
     Ytr = y_train[7500:50000]
-
 
     mean_train = Xtr_rows.mean(axis=0)
     stdv_train = Xte_rows.std(axis=0)
@@ -236,10 +231,9 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
     Xte_rows = Xte_rot / numpy.sqrt(S + 1e-5)
     """
 
-    train_set = (Xtr_rows,Ytr)
-    valid_set = (Xval_rows,Yval)
-    test_set = (Xte_rows,Yte)
-
+    train_set = (Xtr_rows, Ytr)
+    valid_set = (Xval_rows, Yval)
+    test_set = (Xte_rows, Yte)
 
     test_set_x, test_set_y = shared_dataset(test_set)
     valid_set_x, valid_set_y = shared_dataset(valid_set)
@@ -250,7 +244,6 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
     train_set_x, train_set_y = datasets[0]
     valid_set_x, valid_set_y = datasets[1]
     test_set_x, test_set_y = datasets[2]
-
 
     # compute number of minibatches for training, validation and testing
     n_train_batches = train_set_x.get_value(borrow=True).shape[0]
@@ -265,8 +258,7 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
 
     # start-snippet-1
     x = T.matrix('x')   # the data is presented as rasterized images
-    y = T.ivector('y')  # the labels are presented as 1D vector of
-                        # [int] labels
+    y = T.ivector('y')  # the labels are presented as 1D vector of [int] labels
 
     ######################
     # BUILD ACTUAL MODEL #
@@ -279,9 +271,9 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
     layer0_input = x.reshape((batch_size, 3, 32, 32))
 
     # Construct the first convolutional pooling layer:
-    # filtering reduces the image size to (28-5+1 , 28-5+1) = (24, 24)
-    # maxpooling reduces this further to (24/2, 24/2) = (12, 12)
-    # 4D output tensor is thus of shape (batch_size, nkerns[0], 12, 12)
+    # filtering reduces the image size to (32-5+1 , 32-5+1) = (28, 28)
+    # maxpooling reduces this further to (28/2, 28/2) = (14, 14)
+    # 4D output tensor is thus of shape (batch_size, nkerns[0], 14, 14)
     layer0 = LeNetConvPoolLayer(
         rng,
         input=layer0_input,
@@ -291,9 +283,9 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
     )
 
     # Construct the second convolutional pooling layer
-    # filtering reduces the image size to (12-5+1, 12-5+1) = (8, 8)
-    # maxpooling reduces this further to (8/2, 8/2) = (4, 4)
-    # 4D output tensor is thus of shape (batch_size, nkerns[1], 4, 4)
+    # filtering reduces the image size to (14-5+1, 14-5+1) = (10, 10)
+    # maxpooling reduces this further to (10/2, 10/2) = (5, 5)
+    # 4D output tensor is thus of shape (batch_size, nkerns[1], 5, 5)
     layer1 = LeNetConvPoolLayer(
         rng,
         input=layer0.output,
@@ -403,23 +395,22 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
     epoch_val_list = []
 
     while (epoch < n_epochs) and (not done_looping):
-        epoch = epoch + 1
-        if epoch ==10 :
+        epoch += 1
+        if epoch == 10 :
             learning_rate.set_value(0.1)
-        #if epoch > 30:
+        # if epoch > 30:
         #    learning_rate.set_value(learning_rate.get_value()*0.9995)
         if epoch > 3:
-            epoch_loss_np = numpy.reshape(epoch_loss_list,newshape=(len(epoch_loss_list),3))
-            epoch_val_np = numpy.reshape(epoch_val_list,newshape=(len(epoch_val_list),3))
+            epoch_loss_np = numpy.reshape(epoch_loss_list, newshape=(len(epoch_loss_list), 3))
+            epoch_val_np = numpy.reshape(epoch_val_list, newshape=(len(epoch_val_list), 3))
             numpy.savetxt(fname='epoc_cost.csv', X=epoch_loss_np,
-                        fmt='%1.3f')
+                          fmt='%1.3f')
             numpy.savetxt(fname='epoc_val_error.csv', X=epoch_val_np,
-                        fmt='%1.3f')
+                          fmt='%1.3f')
 
         for minibatch_index in range(n_train_batches):
 
             iter = (epoch - 1) * n_train_batches + minibatch_index
-
 
             if iter % 100 == 0:
                 print('training @ iter = ', iter)
@@ -437,13 +428,12 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
                 print('epoch %i, minibatch %i/%i, validation error %f %%' %
                       (epoch, minibatch_index + 1, n_train_batches,
                        this_validation_loss * 100.))
-                epoch_val_entry = [iter,epoch,this_validation_loss]
+                epoch_val_entry = [iter, epoch, this_validation_loss]
                 epoch_val_list.append(epoch_val_entry)
 
                 # if we got the best validation score until now
                 if this_validation_loss < best_validation_loss:
-
-                    #improve patience if loss improvement is good enough
+                    # improve patience if loss improvement is good enough
                     if this_validation_loss < best_validation_loss *  \
                        improvement_threshold:
                         patience = max(patience, iter * patience_increase)
@@ -476,18 +466,20 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
            os.path.split(__file__)[1] +
            ' ran for %.2fm' % ((end_time - start_time) / 60.)), file=sys.stderr)
 
-    epoch_loss_np = numpy.reshape(epoch_loss_list,newshape=(len(epoch_loss_list), 3))
-    epoch_val_np = numpy.reshape(epoch_val_list,newshape=(len(epoch_val_list), 3))
+    epoch_loss_np = numpy.reshape(epoch_loss_list, newshape=(len(epoch_loss_list), 3))
+    epoch_val_np = numpy.reshape(epoch_val_list, newshape=(len(epoch_val_list), 3))
 
-    epoch_loss = pandas.DataFrame({"iter":epoch_loss_np[:,0],"epoch":epoch_loss_np[:,1],"cost":epoch_loss_np[:,2]})
-    epoch_vall = pandas.DataFrame({"iter":epoch_val_np[:,0],"epoch":epoch_val_np[:,1],"val_error":epoch_val_np[:,2]})
+    epoch_loss = pandas.DataFrame({"iter": epoch_loss_np[:, 0], "epoch": epoch_loss_np[:, 1],
+                                   "cost": epoch_loss_np[:, 2]})
+    epoch_vall = pandas.DataFrame({"iter": epoch_val_np[:, 0], "epoch": epoch_val_np[:, 1],
+                                   "val_error": epoch_val_np[:, 2]})
     epoc_avg_loss = pandas.DataFrame(epoch_loss.groupby(['epoch']).mean()["cost"])
     epoc_avg_val = pandas.DataFrame(epoch_vall.groupby(['epoch']).mean()["val_error"])
-    epoc_avg_loss = pandas.DataFrame({"epoch":epoc_avg_loss.index.values,"cost":epoc_avg_loss["cost"]})
-    epoc_avg_loss_val = pandas.DataFrame({"epoch":epoc_avg_val.index.values,"val_error":epoc_avg_val["val_error"]})
-    epoc_avg_loss.plot(kind="line",x="epoch",y="cost")
+    epoc_avg_loss = pandas.DataFrame({"epoch": epoc_avg_loss.index.values, "cost": epoc_avg_loss["cost"]})
+    epoc_avg_loss_val = pandas.DataFrame({"epoch": epoc_avg_val.index.values, "val_error": epoc_avg_val["val_error"]})
+    epoc_avg_loss.plot(kind="line", x="epoch", y="cost")
     plt.show()
-    epoc_avg_loss_val.plot(kind='line',x="epoch",y="val_error")
+    epoc_avg_loss_val.plot(kind='line', x="epoch", y="val_error")
     plt.show()
 
 if __name__ == '__main__':
