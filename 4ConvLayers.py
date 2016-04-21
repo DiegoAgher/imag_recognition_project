@@ -314,8 +314,8 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
 
     layer3conv = LeNetConvPoolLayer(
      rng,
-        input=layer1.output,
-        image_shape=(batch_size, nkerns[1], 3, 3),
+        input=layer2conv.output,
+        image_shape=(batch_size, nkerns[2], 3, 3),
         filter_shape=(nkerns[3], nkerns[2], 2, 2),
         poolsize=(2, 2)
     )
@@ -368,7 +368,7 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
     )
 
     # create a list of all model parameters to be fit by gradient descent
-    params = layer4.params + layer3.params + layer2conv.params + layer1.params + layer0.params
+    params = layer0.params + layer1.params + layer2conv.params + layer3conv.params + layer3.params + layer4.params
 
     # create a list of gradients for all model parameters
     grads = T.grad(cost, params)
