@@ -113,7 +113,7 @@ class LeNetConvPoolLayer(object):
         # reshape it to a tensor of shape (1, n_filters, 1, 1). Each bias will
         # thus be broadcasted across mini-batches and feature map
         # width & height
-        self.output = T.tanh(pooled_out + self.b.dimshuffle('x', 0, 'x', 'x'))
+        self.output = relu(pooled_out + self.b.dimshuffle('x', 0, 'x', 'x'))
 
         # store parameters of this layer
         self.params = [self.W, self.b]
@@ -300,6 +300,7 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
     # or (500, 50 * 4 * 4) = (500, 800) with the default values.
     layer2_input = layer1.output.flatten(2)
 
+    print (layer2_input.shape)
     # construct a fully-connected sigmoidal layer
     layer2 = HiddenLayer(
         rng,
@@ -313,13 +314,13 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
     layer3 = LogisticRegression(input=layer2.output, n_in=500, n_out=10)
 
     # the cost we minimize during training is the NLL of the model
-    L2_reg = 0.001
+    L2_reg = 0.01
     L2_sqr = (
             (layer2.W ** 2).sum()
-            + (layer3.W ** 2).sum()
+             + (layer3.W ** 2).sum()
         )
 
-    cost = layer3.negative_log_likelihood(y)  + L2_reg * L2_sqr
+    cost = layer3.negative_log_likelihood(y) + L2_reg * L2_sqr
 
     # create a function to compute the mistakes that are made by the model
     test_model = theano.function(

@@ -113,7 +113,7 @@ class LeNetConvPoolLayer(object):
         # reshape it to a tensor of shape (1, n_filters, 1, 1). Each bias will
         # thus be broadcasted across mini-batches and feature map
         # width & height
-        self.output = T.tanh(pooled_out + self.b.dimshuffle('x', 0, 'x', 'x'))
+        self.output = relu(pooled_out + self.b.dimshuffle('x', 0, 'x', 'x'))
 
         # store parameters of this layer
         self.params = [self.W, self.b]
@@ -124,7 +124,7 @@ class LeNetConvPoolLayer(object):
 
 def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
                     dataset='mnist.pkl.gz',
-                    nkerns=[20, 20], batch_size=500):
+                    nkerns=[20, 50, 20, 20], batch_size=500):
     """ Demonstrates lenet on CIFAR-10 dataset
 
     :type learning_rate: float
@@ -271,60 +271,87 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
     layer0_input = x.reshape((batch_size, 3, 32, 32))
 
     # Construct the first convolutional pooling layer:
-    # filtering reduces the image size to (32-5+1 , 32-5+1) = (28, 28)
-    # maxpooling reduces this further to (28/2, 28/2) = (14, 14)
-    # 4D output tensor is thus of shape (batch_size, nkerns[0], 14, 14)
+    # filtering reduces the image size to (32-3+1 , 32-3+1) = (30, 30)
+    # maxpooling reduces this further to (30/2, 30/2) = (15, 15)
+    # 4D output tensor is thus of shape (batch_size, nkerns[0], 15, 15)
     layer0 = LeNetConvPoolLayer(
         rng,
         input=layer0_input,
         image_shape=(batch_size, 3, 32, 32),
-        filter_shape=(nkerns[0], 3, 5, 5),
+        filter_shape=(nkerns[0], 3, 3, 3),
         poolsize=(2, 2)
     )
 
     # Construct the second convolutional pooling layer
-    # filtering reduces the image size to (14-5+1, 14-5+1) = (10, 10)
-    # maxpooling reduces this further to (10/2, 10/2) = (5, 5)
-    # 4D output tensor is thus of shape (batch_size, nkerns[1], 5, 5)
+    # filtering reduces the image size to (15-2+1, 15-2+1) = (14, 14)
+    # maxpooling reduces this further to (14/2, 14/2) = (7, 7)
+    # 4D output tensor is thus of shape (batch_size, nkerns[1], 7, 7)
     layer1 = LeNetConvPoolLayer(
         rng,
         input=layer0.output,
-        image_shape=(batch_size, nkerns[0], 14, 14),
-        filter_shape=(nkerns[1], nkerns[0], 5, 5),
+        image_shape=(batch_size, nkerns[0], 15, 15),
+        filter_shape=(nkerns[1], nkerns[0], 2, 2),
         poolsize=(2, 2)
     )
+
+    # Construct the third convolutional pooling layer
+    # filtering reduces the image size to (7-2+1, 7-2+1) = (6, 6)
+    # maxpooling reduces this further to (6/2, 6/2) = (3, 3)
+    # 4D output tensor is thus of shape (batch_size, nkerns[2], 3, 3)
+
+    layer2conv = LeNetConvPoolLayer(
+     rng,
+        input=layer1.output,
+        image_shape=(batch_size, nkerns[1], 7, 7),
+        filter_shape=(nkerns[2], nkerns[1], 2, 2),
+        poolsize=(2, 2)
+    )
+
+    # Construct the fourth convolutional pooling layer
+    # filtering reduces the image size to (3-2+1, 3-2+1) = (2, 2)
+    # maxpooling reduces this further to (2/2, 2/2) = (1, 1)
+    # 4D output tensor is thus of shape (batch_size, nkerns[2], 1, 1)
+
+    layer3conv = LeNetConvPoolLayer(
+     rng,
+        input=layer1.output,
+        image_shape=(batch_size, nkerns[1], 3, 3),
+        filter_shape=(nkerns[3], nkerns[2], 2, 2),
+        poolsize=(2, 2)
+    )
+
 
     # the HiddenLayer being fully-connected, it operates on 2D matrices of
     # shape (batch_size, num_pixels) (i.e matrix of rasterized images).
     # This will generate a matrix of shape (batch_size, nkerns[1] * 4 * 4),
     # or (500, 50 * 4 * 4) = (500, 800) with the default values.
-    layer2_input = layer1.output.flatten(2)
-
+    layer3_input = layer3conv.output.flatten(2)
+    print (layer3_input.shape)
     # construct a fully-connected sigmoidal layer
-    layer2 = HiddenLayer(
+    layer3 = HiddenLayer(
         rng,
-        input=layer2_input,
-        n_in=nkerns[1] * 5 * 5,
+        input=layer3_input,
+        n_in=nkerns[3] * 1 * 1,
         n_out=500,
         activation=relu
     )
 
     # classify the values of the fully-connected sigmoidal layer
-    layer3 = LogisticRegression(input=layer2.output, n_in=500, n_out=10)
+    layer4 = LogisticRegression(input=layer3.output, n_in=500, n_out=10)
 
     # the cost we minimize during training is the NLL of the model
     L2_reg = 0.001
     L2_sqr = (
-            (layer2.W ** 2).sum()
-            + (layer3.W ** 2).sum()
+            (layer0.W ** 2).sum() + (layer1.W ** 2).sum() + (layer2conv.W ** 2).sum() + (layer3conv.W**2).sum() +
+            (layer3.W ** 2).sum() + (layer4.W ** 2).sum()
         )
 
-    cost = layer3.negative_log_likelihood(y)  + L2_reg * L2_sqr
+    cost = layer4.negative_log_likelihood(y) + L2_reg * L2_sqr
 
     # create a function to compute the mistakes that are made by the model
     test_model = theano.function(
         [index],
-        layer3.errors(y),
+        layer4.errors(y),
         givens={
             x: test_set_x[index * batch_size: (index + 1) * batch_size],
             y: test_set_y[index * batch_size: (index + 1) * batch_size]
@@ -333,7 +360,7 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
 
     validate_model = theano.function(
         [index],
-        layer3.errors(y),
+        layer4.errors(y),
         givens={
             x: valid_set_x[index * batch_size: (index + 1) * batch_size],
             y: valid_set_y[index * batch_size: (index + 1) * batch_size]
@@ -341,7 +368,7 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
     )
 
     # create a list of all model parameters to be fit by gradient descent
-    params = layer3.params + layer2.params + layer1.params + layer0.params
+    params = layer4.params + layer3.params + layer2conv.params + layer1.params + layer0.params
 
     # create a list of gradients for all model parameters
     grads = T.grad(cost, params)
@@ -398,8 +425,8 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
         epoch += 1
         if epoch == 10:
             learning_rate.set_value(0.1)
-        # if epoch > 30:
-        #    learning_rate.set_value(learning_rate.get_value()*0.9995)
+        if epoch >= 20 and learning_rate.get_value() >= 0.1 * (0.9 ** 8):
+            learning_rate.set_value(learning_rate.get_value()*0.9)
         if epoch > 3:
             epoch_loss_np = numpy.reshape(epoch_loss_list, newshape=(len(epoch_loss_list), 3))
             epoch_val_np = numpy.reshape(epoch_val_list, newshape=(len(epoch_val_list), 3))
