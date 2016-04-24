@@ -124,7 +124,7 @@ class LeNetConvPoolLayer(object):
 
 def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
                     dataset='mnist.pkl.gz',
-                    nkerns=[20, 20], batch_size=500):
+                    nkerns=[32, 32, 64], batch_size=500):
     """ Demonstrates lenet on CIFAR-10 dataset
 
     :type learning_rate: float
@@ -294,18 +294,32 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
         poolsize=(2, 2)
     )
 
+    # Construct the third convolutional pooling layer
+    # filtering reduces the image size to (5-2+1, 5-2+1) = (4, 4)
+    # maxpooling reduces this further to (4/2, 4/2) = (2, 2)
+    # 4D output tensor is thus of shape (batch_size, nkerns[2], 2, 2)
+
+    layer2conv = LeNetConvPoolLayer(
+     rng,
+        input=layer1.output,
+        image_shape=(batch_size, nkerns[1], 5, 5),
+        filter_shape=(nkerns[2], nkerns[1], 2, 2),
+        poolsize=(2, 2)
+    )
+
+
     # the HiddenLayer being fully-connected, it operates on 2D matrices of
     # shape (batch_size, num_pixels) (i.e matrix of rasterized images).
     # This will generate a matrix of shape (batch_size, nkerns[1] * 4 * 4),
     # or (500, 50 * 4 * 4) = (500, 800) with the default values.
-    layer2_input = layer1.output.flatten(2)
+    layer2_input = layer2conv.output.flatten(2)
 
     print (layer2_input.shape)
     # construct a fully-connected sigmoidal layer
     layer2 = HiddenLayer(
         rng,
         input=layer2_input,
-        n_in=nkerns[1] * 5 * 5,
+        n_in=nkerns[2] * 2 * 2,
         n_out=500,
         activation=relu
     )
@@ -316,7 +330,7 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
     # the cost we minimize during training is the NLL of the model
     L2_reg = 0.01
     L2_sqr = (
-            (layer2.W ** 2).sum()
+            (layer2.W ** 2).sum() + (layer2conv.W ** 2).sum()
              + (layer3.W ** 2).sum()
         )
 
@@ -399,8 +413,8 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
         epoch += 1
         if epoch == 10:
             learning_rate.set_value(0.1)
-        # if epoch > 30:
-        #    learning_rate.set_value(learning_rate.get_value()*0.9995)
+        if epoch >= 18 and learning_rate.get_value() >= 0.1 * (0.9 ** 6):
+           learning_rate.set_value(learning_rate.get_value()*0.9)
         if epoch > 3:
             epoch_loss_np = numpy.reshape(epoch_loss_list, newshape=(len(epoch_loss_list), 3))
             epoch_val_np = numpy.reshape(epoch_val_list, newshape=(len(epoch_val_list), 3))
