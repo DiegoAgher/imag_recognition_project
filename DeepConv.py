@@ -102,9 +102,16 @@ class LeNetConvPoolLayer(object):
             image_shape=image_shape
         )
 
+            
+        # relu first before downsampling
+
+        non_linearized = relu(conv_out)
+
+
+
         # downsample each feature map individually, using maxpooling
         pooled_out = downsample.max_pool_2d(
-            input=conv_out,
+            input=non_linearized,
             ds=poolsize,
             ignore_border=True
         )
@@ -113,7 +120,7 @@ class LeNetConvPoolLayer(object):
         # reshape it to a tensor of shape (1, n_filters, 1, 1). Each bias will
         # thus be broadcasted across mini-batches and feature map
         # width & height
-        self.output = relu(pooled_out + self.b.dimshuffle('x', 0, 'x', 'x'))
+        self.output = pooled_out + self.b.dimshuffle('x', 0, 'x', 'x')
 
         # store parameters of this layer
         self.params = [self.W, self.b]

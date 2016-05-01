@@ -356,12 +356,12 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
 
     # construct a fully-connected sigmoidal layer
 
-    Fully_conected_layers = TLMLP(rng,fc_input,nkerns[4]*4*4,500,500,500,10)
+    Fully_conected_layers = TLMLP(rng,fc_input,512,500,500,500,10)
 
 
     # the cost we minimize during training is the NLL of the model
     L2_reg = 0.001
-    L2_sqr = (
+    L2_sqrt = (
             (layer2conv.W ** 2).sum()
             + (layer3conv.W ** 2).sum()
         )
@@ -370,7 +370,7 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
         Fully_conected_layers.negative_log_likelihood(y)
         + L2_reg * Fully_conected_layers.L2_sqr
     )
-    cost = fc_cost + L2_reg * L2_sqr
+    cost = fc_cost + L2_reg * L2_sqrt
 
     # create a function to compute the mistakes that are made by the model
     test_model = theano.function(
@@ -392,7 +392,7 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
     )
 
     # create a list of all model parameters to be fit by gradient descent
-    params = Fully_conected_layers.params +layer3conv.params + layer3conv.params+ layer2conv.params + layer1.params + layer0.params
+    params = Fully_conected_layers.params +layer4conv.params + layer3conv.params+ layer2conv.params + layer1.params + layer0.params
 
     # create a list of gradients for all model parameters
     grads = T.grad(cost, params)
