@@ -137,7 +137,7 @@ class LeNetConvPoolLayer(object):
 
 def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
                     dataset='mnist.pkl.gz',
-                    nkerns=[32, 32, 32, 32, 32], batch_size=500):
+                    nkerns=[60, 80, 150, 150, 80], batch_size=200):
     """ Demonstrates lenet on CIFAR-10 dataset
 
     :type learning_rate: float
@@ -334,9 +334,9 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
     )
 
     # Construct the fifth convolutional pooling layer
-    # filtering reduces the image size to (6+4-3+1, 6+4-3+1) = (8,8 )
-    # maxpooling reduces this further to (8/2, 8/2) = (4, 4)
-    # 4D output tensor is thus of shape (batch_size, nkerns[2], 4, 4)
+    # filtering reduces the image size to (4+4-3+1, 4+4-3+1) = (6, 6)
+    # maxpooling reduces this further to (6/2, 6/2) = (3, 3)
+    # 4D output tensor is thus of shape (batch_size, nkerns[2], 3, 3)
 
     layer4conv = LeNetConvPoolLayer(
      rng,
@@ -356,26 +356,28 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
 
     # construct a fully-connected sigmoidal layer
 
-    Fully_conected_layers = TLMLP(rng,fc_input,512,500,500,500,10)
-
+    Fully_conected_layers = TLMLP(rng, fc_input, nkerns[4]*3*3, 600, 600, 200, 10)
 
     # the cost we minimize during training is the NLL of the model
-    L2_reg = 0.001
-    L2_sqrt = (
+    L2_reg = 0.0008
+    W_layers = (
+        (layer0.W ** 2).sum() +
+        (layer1.W ** 2).sum() +
             (layer2conv.W ** 2).sum()
             + (layer3conv.W ** 2).sum()
+         + (layer4conv.W**2).sum()
         )
 
     fc_cost = (
         Fully_conected_layers.negative_log_likelihood(y)
-        + L2_reg * Fully_conected_layers.L2_sqr
+        + L2_reg * (Fully_conected_layers.L2_sqr + W_layers)
     )
-    cost = fc_cost + L2_reg * L2_sqrt
+    cost = fc_cost
 
     # create a function to compute the mistakes that are made by the model
     test_model = theano.function(
         [index],
-        Fully_conected_layers.errors(y),
+            Fully_conected_layers.errors(y),
         givens={
             x: test_set_x[index * batch_size: (index + 1) * batch_size],
             y: test_set_y[index * batch_size: (index + 1) * batch_size]
@@ -447,16 +449,16 @@ def evaluate_lenet5(learning_rate=0.15, n_epochs=200,
 
     while (epoch < n_epochs) and (not done_looping):
         epoch += 1
-        if epoch == 10:
-            learning_rate.set_value(0.1)
-        # if epoch > 30:
-        #    learning_rate.set_value(learning_rate.get_value()*0.9995)
+        #if epoch == 10:
+        #    learning_rate.set_value(0.1)
+        #if epoch > 18:
+        #   learning_rate.set_value(learning_rate.get_value()*0.9995)
         if epoch > 3:
             epoch_loss_np = numpy.reshape(epoch_loss_list, newshape=(len(epoch_loss_list), 3))
             epoch_val_np = numpy.reshape(epoch_val_list, newshape=(len(epoch_val_list), 3))
-            numpy.savetxt(fname='epoc_cost.csv', X=epoch_loss_np,
+            numpy.savetxt(fname='epoc_cost_pad.csv', X=epoch_loss_np,
                           fmt='%1.3f')
-            numpy.savetxt(fname='epoc_val_error.csv', X=epoch_val_np,
+            numpy.savetxt(fname='epoc_val_error_padd.csv', X=epoch_val_np,
                           fmt='%1.3f')
 
         for minibatch_index in range(n_train_batches):
